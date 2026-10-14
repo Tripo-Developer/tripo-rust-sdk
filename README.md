@@ -1,5 +1,8 @@
 # tripo3d-sdk (Rust)
 
+[![crates.io](https://img.shields.io/crates/v/tripo3d-sdk.svg)](https://crates.io/crates/tripo3d-sdk)
+[![rustdoc](https://img.shields.io/docsrs/tripo3d-sdk?label=rustdoc)](https://docs.rs/tripo3d-sdk)
+
 **English** · [简体中文](./README.zh-CN.md)
 
 The official, async **Rust SDK** for the [Tripo3D v3 API](https://developers.tripo3d.ai/en/docs/introduction) — a full AI 3D generation platform covering text-to-3D, image-to-3D, multiview-to-3D, re-texturing, mesh editing, auto-rigging and animation retargeting.
@@ -22,7 +25,7 @@ The official, async **Rust SDK** for the [Tripo3D v3 API](https://developers.tri
 
 ```toml
 [dependencies]
-tripo3d-sdk = "0.1"
+tripo3d-sdk = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 

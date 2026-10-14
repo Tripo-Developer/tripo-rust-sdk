@@ -1,10 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -26,12 +25,12 @@ jobs:
         run: cargo fmt --check
 
       - name: Lint
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       # Plain `cargo test` on purpose: `--all-targets` silently drops the
       # doctests, and clippy above already compiles the examples.
       - name: Test
-        run: cargo test --locked
+        run: cargo test
 
   msrv:
     runs-on: ubuntu-latest
@@ -43,15 +42,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Library only, and `--locked` on purpose. `rust-version` is a promise
-      # to consumers, and the test suite's dev-dependencies need a newer
-      # toolchain than the library does. Without the committed lockfile this
-      # job resolves fresh dependencies on every run, so a transitive crate
-      # raising its own MSRV would break the build with nothing changed here
-      # — which is exactly how the previous 1.86 claim went stale within a
-      # day.
+      # Build the library on the declared MSRV; test dependencies are checked
+      # separately on stable.
       - name: Build
-        run: cargo build --locked
+        run: cargo build
 
       - name: Check the declared MSRV matches this job
         run: |

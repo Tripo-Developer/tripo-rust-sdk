@@ -1,35 +1,46 @@
 # Releasing
 
-Publishing runs from `.github/workflows/publish.yml` using crates.io Trusted
-Publishing. There is no `CARGO_REGISTRY_TOKEN` stored as a repository secret:
-`rust-lang/crates-io-auth-action` exchanges the workflow's OIDC token for a
-30-minute crates.io token and revokes it when the job finishes.
+Releases are managed by [release-plz](https://release-plz.dev/) through
+`.github/workflows/publish.yml` and configured in `release-plz.toml`.
+Publishing uses crates.io Trusted Publishing: release-plz obtains a temporary
+token through GitHub Actions OIDC.
 
 ## Cutting a release
 
-```sh
-# bump `version` in Cargo.toml, then:
-cargo test && cargo clippy --all-targets -- -D warnings
-git commit -am "Release X.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
-```
+1. Merge changes into `main`. The release workflow runs the reusable CI
+   workflow, including formatting, clippy, tests, and the Rust 1.88 MSRV build.
+2. After CI succeeds, release-plz creates or updates a release PR containing
+   the next version in `Cargo.toml` and the release notes in `CHANGELOG.md`.
+   CI is explicitly dispatched on the release PR branch using `GITHUB_TOKEN`.
+3. Review and merge the release PR. After CI succeeds on `main`, release-plz
+   publishes the crate to crates.io, creates the `vX.Y.Z` tag, and creates a
+   GitHub Release containing the changelog. docs.rs builds the Rust API
+   documentation after the crate is published.
 
-Pushing the `v*` tag triggers the workflow, which refuses to publish if the tag
-does not match the `version` in `Cargo.toml`, then runs `cargo fmt --check`,
-clippy, and the test suite before publishing.
+`release_always = false` makes the merged release PR the publishing trigger.
+The release workflow can also be rerun manually on `main` through
+**Actions → Release → Run workflow**.
+
+The jobs that create release PRs and publish releases run only in
+`VAST-AI-Research/tripo-rust-sdk` on `main`.
 
 The `User-Agent` derives from `CARGO_PKG_VERSION`, so it tracks `Cargo.toml`
 automatically.
 
-`Cargo.lock` is committed and every CI and publish step runs `--locked`, so
-what ships is what CI verified. Refreshing dependencies is therefore a
-deliberate act (`cargo update`), and it can raise the effective MSRV: the
-`icu_*` crates that `reqwest` pulls in bump theirs often. After an update,
-re-check `rust-version` against the `msrv` job in `.github/workflows/ci.yml`
-— CI fails if the two disagree.
+The repository does not track `Cargo.lock`. CI and publishing resolve
+dependencies from `Cargo.toml` and generate a local lockfile. Dependency
+updates can raise the effective MSRV, so after changing dependencies,
+re-check `rust-version` against the `msrv` job in `.github/workflows/ci.yml`.
+CI fails if the two disagree.
 
-## One-time setup (already done)
+## GitHub Actions setup
+
+In **Settings → Actions → General → Workflow permissions**, enable
+**Allow GitHub Actions to create and approve pull requests**. The workflow
+uses the built-in `GITHUB_TOKEN` to create release PRs, dispatch their CI,
+push tags, and create GitHub Releases.
+
+## crates.io Trusted Publishing setup
 
 On [crates.io](https://crates.io/crates/tripo3d-sdk/settings) → **Trusted
 Publishing** → **Add a new publisher** → **GitHub**:
@@ -43,4 +54,4 @@ Publishing** → **Add a new publisher** → **GitHub**:
 
 Trusted Publishing cannot bootstrap a brand-new crate — the first version must
 be published manually, which for this crate already happened at `0.1.0`.
-Renaming `publish.yml` breaks publishing until the entry is updated to match.
+The workflow remains named `publish.yml` to match this publisher entry.

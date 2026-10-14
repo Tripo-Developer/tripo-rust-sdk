@@ -1,5 +1,8 @@
 # tripo3d-sdk（Rust 版）
 
+[![crates.io](https://img.shields.io/crates/v/tripo3d-sdk.svg)](https://crates.io/crates/tripo3d-sdk)
+[![rustdoc](https://img.shields.io/docsrs/tripo3d-sdk?label=rustdoc)](https://docs.rs/tripo3d-sdk)
+
 [English](./README.md) · **简体中文**
 
 Tripo 官方异步 **Rust SDK**，用于访问 [Tripo3D v3 API](https://developers.tripo3d.com/zh/docs/introduction) —— 覆盖 AI 3D 生成的完整能力：文生 3D、图生 3D、多视角生 3D、重贴图、网格编辑、自动绑骨与动画重定向。
@@ -22,7 +25,7 @@ Tripo 官方异步 **Rust SDK**，用于访问 [Tripo3D v3 API](https://develope
 
 ```toml
 [dependencies]
-tripo3d-sdk = "0.1"
+tripo3d-sdk = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
