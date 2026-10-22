@@ -558,6 +558,36 @@ impl DecimateMeshParams {
     }
 }
 
+/// `POST /v3/mesh/uv`
+///
+/// The input model must not exceed 80,000 equivalent triangles (a quad
+/// counts as two). Larger models are accepted at creation time but the task
+/// then fails and refunds its credits, so reduce the face count first, e.g.
+/// with `decimate_mesh`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MeshUvParams {
+    pub input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bake: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_orientation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compress: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl MeshUvParams {
+    pub fn new(input: impl Into<String>) -> Self {
+        Self {
+            input: input.into(),
+            ..Default::default()
+        }
+    }
+}
+
 /// `POST /v3/animations/rig-check`
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct RigCheckParams {

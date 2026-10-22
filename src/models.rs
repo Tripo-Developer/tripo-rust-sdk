@@ -80,6 +80,9 @@ pub struct TaskOutput {
     /// synthesised internally.
     #[serde(default)]
     pub generated_image_url: Option<String>,
+    /// UV layout preview image produced by `mesh_uv`.
+    #[serde(default)]
+    pub uv_render_url: Option<String>,
     #[serde(default)]
     pub riggable: Option<bool>,
     #[serde(default)]

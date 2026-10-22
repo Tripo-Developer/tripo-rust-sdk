@@ -10,8 +10,9 @@ use tripo3d_sdk::constants::{
 };
 use tripo3d_sdk::models::{FileInput, MultiviewPrompt};
 use tripo3d_sdk::params::{
-    EditMultiviewParams, ImageToImageParams, ImageToModelParams, MultiviewToModelParams,
-    RetargetAnimationParams, RigCheckParams, RigModelParams, TextToImageParams, TextToModelParams,
+    EditMultiviewParams, ImageToImageParams, ImageToModelParams, MeshUvParams,
+    MultiviewToModelParams, RetargetAnimationParams, RigCheckParams, RigModelParams,
+    TextToImageParams, TextToModelParams,
 };
 use tripo3d_sdk::{ClientOptions, DownloadedModel, Error, TaskStatus, TripoClient, WaitOptions};
 use wiremock::matchers::{body_json, header, method, path};
@@ -549,6 +550,62 @@ async fn retarget_animation_rejects_more_than_five_animations() {
         })
         .await
         .unwrap_err();
+    assert!(matches!(err, Error::InvalidArgument(_)));
+}
+
+#[tokio::test]
+async fn mesh_uv_posts_payload_and_exposes_uv_render() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/mesh/uv"))
+        .and(body_json(json!({
+            "input": "file_abc",
+            "bake": false,
+            "export_orientation": export_orientation::PLUS_Y,
+            "compress": "geometry",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "code": 0,
+            "data": { "task_id": "task_uv" }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/tasks/task_uv"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "code": 0,
+            "data": {
+                "task_id": "task_uv",
+                "type": "mesh_uv",
+                "status": "success",
+                "progress": 100,
+                "output": {
+                    "model_url": "https://cdn.example/model.glb",
+                    "uv_render_url": "https://cdn.example/uv_render.webp"
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let client = test_client(&server).await;
+    let id = client
+        .mesh_uv(MeshUvParams {
+            bake: Some(false),
+            export_orientation: Some(export_orientation::PLUS_Y.to_string()),
+            compress: Some("geometry".into()),
+            ..MeshUvParams::new("file_abc")
+        })
+        .await
+        .unwrap();
+    let task = client.get_task(&id).await.unwrap();
+    let output = task.output.unwrap();
+    assert_eq!(
+        output.uv_render_url.as_deref(),
+        Some("https://cdn.example/uv_render.webp")
+    );
+
+    let err = client.mesh_uv(MeshUvParams::new(" ")).await.unwrap_err();
     assert!(matches!(err, Error::InvalidArgument(_)));
 }
 

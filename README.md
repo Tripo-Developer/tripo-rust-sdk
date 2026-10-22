@@ -118,6 +118,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | `segment_mesh(params)` | `POST /mesh/segment` | Semantic segmentation |
 | `complete_mesh(params)` | `POST /mesh/complete` | Mesh completion / repair |
 | `decimate_mesh(params)` | `POST /mesh/decimate` | Retopology / face-count reduction |
+| `mesh_uv(params)` | `POST /mesh/uv` | Re-unwrap UVs, remapping textures / rig / animations; also returns a UV layout preview |
 
 ### Animation
 

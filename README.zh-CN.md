@@ -114,6 +114,7 @@ pub struct ClientOptions {
 | `segment_mesh(params)` | `POST /mesh/segment` | 语义分割 |
 | `complete_mesh(params)` | `POST /mesh/complete` | 网格补全 / 修复 |
 | `decimate_mesh(params)` | `POST /mesh/decimate` | 减面 / 重拓扑 |
+| `mesh_uv(params)` | `POST /mesh/uv` | 重新展 UV，并映射原有贴图 / 骨骼 / 动画；额外返回 UV 布局预览图 |
 
 ### 动画
 

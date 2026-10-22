@@ -406,6 +406,16 @@ impl TripoClient {
         self.create_task("/mesh/decimate", &params).await
     }
 
+    /// `POST /v3/mesh/uv` — re-unwrap UVs, remapping the existing textures,
+    /// skeleton and animations onto the new layout. The finished task also
+    /// carries a UV layout preview in [`TaskOutput::uv_render_url`](crate::models::TaskOutput::uv_render_url).
+    pub async fn mesh_uv(&self, params: MeshUvParams) -> Result<String> {
+        if params.input.trim().is_empty() {
+            return Err(Error::invalid_argument("mesh_uv: `input` is required"));
+        }
+        self.create_task("/mesh/uv", &params).await
+    }
+
     // ─────────────────────────────── Animation ──────────────────────────────
 
     /// `POST /v3/animations/rig-check`
