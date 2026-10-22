@@ -9,7 +9,7 @@
 use std::env;
 use tokio::fs;
 use tripo3d_sdk::{
-    constants::model_version,
+    constants::{model_version, rig_model},
     params::{ImageToModelParams, RetargetAnimationParams, RigCheckParams, RigModelParams},
     ClientOptions, TripoClient, WaitOptions,
 };
@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     // 3. Attach the skeleton (use Mixamo naming so it drops into Unity/Unreal).
     let rig_task_id = client
         .rig_model(RigModelParams {
+            model: Some(rig_model::V3_0.to_string()),
             rig_type: Some(rig_type),
             spec: Some("mixamo".to_string()),
             ..RigModelParams::new(model_task_id.as_str())

@@ -27,15 +27,17 @@ pub mod params;
 
 mod http;
 
+pub use client::MAX_LIST_TASKS;
 pub use client::{ClientOptions, DownloadedModel, TripoClient, WaitOptions};
 pub use constants::{
-    aspect_ratio, export_orientation, geometry_quality, image_background, image_format,
-    image_model, image_quality, image_template, model_version, orientation, texture_alignment,
-    texture_quality, view, AnimOutFormat, Animation, OutputFormat, RigSpec, RigType, TaskStatus,
-    TextureFormat, DEFAULT_BASE_URL,
+    aspect_ratio, completion_mode, decimate_model, export_orientation, fbx_preset,
+    geometry_quality, image_background, image_format, image_model, image_quality, image_template,
+    model_version, orientation, rig_model, segment_model, segmentation_granularity,
+    texture_alignment, texture_quality, texture_version, view, AnimOutFormat, Animation,
+    OutputFormat, RigSpec, RigType, TaskStatus, TextureFormat, DEFAULT_BASE_URL,
 };
 pub use error::{Error, Result};
 pub use models::{
     Balance, FileDescriptor, FileInput, MultiviewPrompt, MultiviewTaskRef, ObjectRef, Task,
-    TaskOutput, UploadedFile,
+    TaskList, TaskOutput, TexturePrompt, UploadedFile, ViewImage,
 };

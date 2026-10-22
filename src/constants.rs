@@ -149,12 +149,19 @@ impl fmt::Display for RigType {
     }
 }
 
-/// Rig specifications — controls bone naming/hierarchy conventions.
+/// Rig specifications — controls bone naming/hierarchy conventions. Only
+/// honoured for [`RigType::Biped`]. `ActorCore`, `Unity`, `Unreal` and `Vrm`
+/// require [`rig_model::V3_0`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum RigSpec {
     Mixamo,
     Tripo,
+    ActorCore,
+    Unity,
+    Unreal,
+    Vrm,
 }
 
 impl fmt::Display for RigSpec {
@@ -162,9 +169,76 @@ impl fmt::Display for RigSpec {
         let s = match self {
             RigSpec::Mixamo => "mixamo",
             RigSpec::Tripo => "tripo",
+            RigSpec::ActorCore => "actorcore",
+            RigSpec::Unity => "unity",
+            RigSpec::Unreal => "unreal",
+            RigSpec::Vrm => "vrm",
         };
         f.write_str(s)
     }
+}
+
+/// `model` values accepted by `POST /v3/animations/rig`. [`rig_model::V1_0`]
+/// rigs bipeds only; [`rig_model::V2_5`] and [`rig_model::V3_0`] rig every
+/// [`RigType`], and only [`rig_model::V3_0`] accepts [`RigType::Others`].
+pub mod rig_model {
+    pub const V1_0: &str = "v1.0-20240301";
+    pub const V2_5: &str = "v2.5-20260210";
+    pub const V3_0: &str = "v3.0-20260909";
+}
+
+/// Texture models, selectable via `texture_version` on the 3D generation
+/// endpoints and via `model` on `POST /v3/models/texture`.
+/// [`texture_quality::FAST`] and `delight` require [`texture_version::V3_5`].
+pub mod texture_version {
+    pub const V3_5: &str = "v3.5-20260815";
+    pub const V3_0: &str = "v3.0-20250812";
+    pub const V2_5: &str = "v2.5-20250123";
+}
+
+/// `model` values accepted by `POST /v3/mesh/decimate`. The server defaults
+/// to [`decimate_model::V2_0`]. `smart_uv` requires [`decimate_model::V3_0`],
+/// and [`decimate_model::V1_0`] accepts neither `bake` nor `part_names`.
+pub mod decimate_model {
+    pub const V1_0: &str = "v1.0";
+    pub const V2_0: &str = "v2.0";
+    pub const V3_0: &str = "v3.0";
+}
+
+/// `model` values accepted by `POST /v3/mesh/segment`. The server defaults
+/// to [`segment_model::V1`]; `segmentation_granularity`,
+/// `split_by_connectivity` and `ref_image` require [`segment_model::V2`]
+/// (beta).
+pub mod segment_model {
+    pub const V1: &str = "v1.0-20250506";
+    pub const V2: &str = "v2.0-20260430";
+}
+
+/// `segmentation_granularity` of `POST /v3/mesh/segment`. The server
+/// defaults to [`segmentation_granularity::BALANCED`].
+pub mod segmentation_granularity {
+    pub const SIMPLE: &str = "simple";
+    pub const BALANCED: &str = "balanced";
+    pub const DETAILED: &str = "detailed";
+}
+
+/// `completion_mode` of `POST /v3/mesh/complete`.
+pub mod completion_mode {
+    /// Fills missing regions with generated geometry (default).
+    pub const AI_COMPLETION: &str = "ai_completion";
+    /// Closes open boundaries without AI generation.
+    pub const QUICK_CAP: &str = "quick_cap";
+}
+
+/// `fbx_preset` compatibility profile of `POST /v3/models/convert`. The
+/// server defaults to [`fbx_preset::BLENDER`].
+pub mod fbx_preset {
+    pub const BLENDER: &str = "blender";
+    pub const MAX_3DS: &str = "3dsmax";
+    pub const MIXAMO: &str = "mixamo";
+    /// Bakes the scale transform into the geometry instead of keeping it on
+    /// the node transform.
+    pub const BAKE_SCALE: &str = "bake_scale";
 }
 
 /// Output format for rig / retarget tasks.
@@ -206,6 +280,8 @@ pub mod model_version {
 /// retire on 2026-10-23 and 2026-12-01 respectively. Pass them as a raw
 /// string during migration if you still need them.
 pub mod image_model {
+    /// The text-to-image default; image-to-image rejects it.
+    pub const SEEDREAM_V4: &str = "seedream_v4";
     pub const SEEDREAM_V5: &str = "seedream_v5";
     pub const BANANA: &str = "banana";
     pub const BANANA_PRO: &str = "banana_pro";
@@ -218,12 +294,13 @@ pub mod image_model {
 /// `quality` render tiers for image generation.
 ///
 /// Only `chat_image_2` and the 2.5 models accept this parameter; any other
-/// model rejects the request outright. Omitting it is equivalent to [`LOW`]
-/// — note this differs from OpenAI's own `auto` default, which is not
-/// supported here.
+/// model rejects the request outright. Omitting it is equivalent to
+/// [`LOW`](image_quality::LOW) — note this differs from OpenAI's own `auto`
+/// default, which is not supported here.
 ///
-/// [`XHIGH`] and [`MAX`] are exclusive to the 2.5 models. [`HIGH`] and above
-/// cost extra credits and take noticeably longer.
+/// [`XHIGH`](image_quality::XHIGH) and [`MAX`](image_quality::MAX) are
+/// exclusive to the 2.5 models. [`HIGH`](image_quality::HIGH) and above cost
+/// extra credits and take noticeably longer.
 pub mod image_quality {
     pub const LOW: &str = "low";
     pub const MEDIUM: &str = "medium";
@@ -234,7 +311,8 @@ pub mod image_quality {
 
 /// `background` handling modes, supported only by the 2.5 models. Other
 /// models ignore the field rather than rejecting the request.
-/// [`TRANSPARENT`] requires [`image_format::PNG`].
+/// [`TRANSPARENT`](image_background::TRANSPARENT) requires
+/// [`image_format::PNG`].
 pub mod image_background {
     pub const AUTO: &str = "auto";
     pub const OPAQUE: &str = "opaque";
@@ -271,8 +349,9 @@ pub mod aspect_ratio {
 /// `template` presets for image generation. Setting one makes `prompt`
 /// optional.
 ///
-/// [`ASSET_EXTRACTION`] is accepted only by text-to-image and
-/// [`ENHANCE_3D`] only by image-to-image; the rest work on both.
+/// [`ASSET_EXTRACTION`](image_template::ASSET_EXTRACTION) is accepted only by
+/// text-to-image and [`ENHANCE_3D`](image_template::ENHANCE_3D) only by
+/// image-to-image; the rest work on both.
 pub mod image_template {
     pub const ASSET_EXTRACTION: &str = "asset_extraction";
     pub const CHARACTER_COMPLETION: &str = "character_completion";
@@ -296,8 +375,11 @@ pub mod export_orientation {
     pub const MINUS_Y: &str = "-y";
 }
 
-/// `texture_quality` levels for 3D generation.
+/// `texture_quality` levels for 3D generation and re-texturing.
 pub mod texture_quality {
+    /// Requires [`texture_version::V3_5`](crate::constants::texture_version::V3_5);
+    /// other texture models reject it with code 1004 rather than falling back.
+    pub const FAST: &str = "fast";
     pub const STANDARD: &str = "standard";
     pub const DETAILED: &str = "detailed";
     pub const EXTREME: &str = "extreme";

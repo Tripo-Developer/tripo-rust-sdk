@@ -365,6 +365,7 @@ fn parse_envelope<T: DeserializeOwned>(bytes: &[u8], status: Option<u16>) -> Res
             message: envelope.message,
             suggestion: envelope.suggestion,
             status,
+            request_id: envelope.request_id,
         });
     }
     envelope.data.ok_or_else(|| Error::Request {

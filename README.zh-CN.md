@@ -99,7 +99,7 @@ pub struct ClientOptions {
 | --- | --- | --- |
 | `text_to_model(params)` | `POST /generation/text-to-model` | 文本 → 3D 模型 |
 | `image_to_model(params)` | `POST /generation/image-to-model` | 单图 → 3D 模型 |
-| `multiview_to_model(params)` | `POST /generation/multiview-to-model` | 4 视角 `[front, left, back, right]` → 3D 模型 |
+| `multiview_to_model(params)` | `POST /generation/multiview-to-model` | 2–4 个视角（用 `from_view_images` 按角度指定，或按 `[front, left, back, right]` 顺序）→ 3D 模型 |
 | `text_to_image(params)` | `POST /generation/text-to-image` | 文生概念图 |
 | `image_to_image(params)` | `POST /generation/image-to-image` | 图片风格转换 / 编辑 |
 | `image_to_multiview(params)` | `POST /generation/image-to-multiview` | 单图 → 4 视角图集 |
@@ -109,7 +109,7 @@ pub struct ClientOptions {
 
 | 方法 | 端点 | 说明 |
 | --- | --- | --- |
-| `texture_model(params)` | `POST /models/texture` | 为已有模型重新贴图 |
+| `texture_model(params)` | `POST /models/texture` | 为已有模型重新贴图，用 `texture_prompt` 描述要求 |
 | `convert_model(params)` | `POST /models/convert` | 转换为 GLTF / FBX / OBJ / STL / USDZ / 3MF |
 | `segment_mesh(params)` | `POST /mesh/segment` | 语义分割 |
 | `complete_mesh(params)` | `POST /mesh/complete` | 网格补全 / 修复 |
@@ -121,7 +121,7 @@ pub struct ClientOptions {
 | 方法 | 端点 | 说明 |
 | --- | --- | --- |
 | `rig_check(params)` | `POST /animations/rig-check` | 检查模型是否可绑骨、推荐骨骼类型 |
-| `rig_model(params)` | `POST /animations/rig` | 自动绑骨 |
+| `rig_model(params)` | `POST /animations/rig` | 自动绑骨（未设置 `model` 时发送 `rig_model::V3_0`） |
 | `retarget_animation(params)` | `POST /animations/retarget` | 应用预设动画 |
 
 ### 工具
@@ -129,7 +129,7 @@ pub struct ClientOptions {
 | 方法 | 端点 | 说明 |
 | --- | --- | --- |
 | `get_task(task_id)` | `GET /tasks/{task_id}` | 查询单个任务 |
-| `list_tasks(task_ids)` | `POST /tasks/list` | 批量查询任务 |
+| `list_tasks(task_ids)` | `POST /tasks/list` | 批量查询最多 100 个任务；返回以 task_id 为键的 `tasks` 和查不到的 `missed` |
 | `wait_for_task(task_id, opts)` | — | 轮询直到任务进入终态 |
 | `wait_for_task_with_progress(task_id, opts, cb)` | — | 同上，附带进度回调 |
 | `upload_file(bytes, filename, content_type)` | `POST /files` | 上传文件，返回 `file_token` |
@@ -195,7 +195,7 @@ let model_id = client
 ```rust
 use tripo3d_sdk::{
     ClientOptions, TripoClient, WaitOptions,
-    constants::model_version,
+    constants::{model_version, rig_model},
     params::{ImageToModelParams, RigCheckParams, RigModelParams, RetargetAnimationParams},
 };
 
@@ -221,6 +221,7 @@ assert!(output.riggable.unwrap_or(false), "该模型不可绑骨");
 // 3. 自动绑骨（Mixamo 命名 → 可直接导入 Unity / Unreal）
 let rig_id = client
     .rig_model(RigModelParams {
+        model: Some(rig_model::V3_0.into()),
         rig_type: output.rig_type.clone(),
         spec: Some("mixamo".into()),
         ..RigModelParams::new(model_id.as_str())
@@ -256,8 +257,8 @@ use tripo3d_sdk::Error;
 
 match client.text_to_model(params).await {
     Ok(task_id) => { /* ... */ }
-    Err(Error::Api { code, message, suggestion, .. }) => {
-        eprintln!("API 错误 {code}：{message:?} — {suggestion:?}");
+    Err(Error::Api { code, message, suggestion, request_id, .. }) => {
+        eprintln!("API 错误 {code}：{message:?} — {suggestion:?}（request_id={request_id:?}）");
     }
     Err(Error::Task { task }) => {
         eprintln!("任务 {} 失败：{:?}", task.task_id, task.error_message);
@@ -324,7 +325,7 @@ OutputFormat::Fbx;                 // 序列化为 "FBX"
 
 | 常量 | 取值 | 说明 |
 | --- | --- | --- |
-| `model_version::H3_1` | `v3.1-20260211` | 最新，质量最佳（默认） |
+| `model_version::H3_1` | `v3.1-20260211` | 最新，质量最佳。`text_to_model`、`image_to_model`、`multiview_to_model` 在 `model` 为 `None` 时自动发送它 |
 | `model_version::H3_0` | `v3.0-20250812` | 稳定版，支持高级特性 |
 | `model_version::H2_5` | `v2.5-20250123` | 旧版本，不支持 `geometry_quality` |
 | `model_version::P1` | `P1-20260311` | 低面数，干净拓扑 |
@@ -333,6 +334,35 @@ OutputFormat::Fbx;                 // 序列化为 "FBX"
 P 系列中只有 `model_version::P2` 支持 `quad`，传给 `P1` 会返回 `400`。P1 同样不支持 `smart_low_poly`、`generate_parts` 和 `geometry_quality`。
 
 另外，开启 `quad` 会把输出格式强制为 **FBX** 而非 GLB，所以请从 `model_url` 推导扩展名，不要假定是 `.glb` —— 用 `downloaded.filename(name)` 即可。
+
+### 贴图、绑骨与后处理模型
+
+| 模块 | 用于 | 说明 |
+| --- | --- | --- |
+| `texture_version::{V3_5, V3_0, V2_5}` | 生成接口的 `texture_version`、`texture_model` 的 `model` | `texture_quality::FAST` 和 `delight` 只能配合 `V3_5` |
+| `rig_model::{V1_0, V2_5, V3_0}` | `rig_model` | 未设置 `model` 时 `rig_model` 会发送 `V3_0`。只有 V3.0 支持 `RigType::Others` 以及 `ActorCore` / `Unity` / `Unreal` / `Vrm` 骨骼规范 |
+| `decimate_model::{V1_0, V2_0, V3_0}` | `decimate_mesh` | 服务端默认 V2.0；`smart_uv` 只能配合 V3.0 |
+| `segment_model::{V1, V2}` | `segment_mesh` | `segmentation_granularity`、`split_by_connectivity`、`ref_image` 只在 V2（Beta）生效 |
+| `completion_mode::{AI_COMPLETION, QUICK_CAP}` | `complete_mesh` | AI 补全（默认）或快速封口 |
+| `fbx_preset::{BLENDER, MAX_3DS, MIXAMO, BAKE_SCALE}` | `convert_model` | FBX 兼容性预设 |
+
+`RigSpec` 标注了 `#[non_exhaustive]`，对它 `match` 时需要加通配分支。
+
+重新贴图使用嵌套的 `TexturePrompt`。`text`、`image`、`images` 三者互斥，`style_image` 只能和 `text` 搭配：
+
+```rust
+use tripo3d_sdk::{constants::texture_version, params::TextureModelParams, TexturePrompt};
+
+client
+    .texture_model(TextureModelParams {
+        model: Some(texture_version::V3_5.into()),
+        texture_prompt: Some(TexturePrompt::text("weathered red paint")),
+        ..TextureModelParams::new(model_id.as_str())
+    })
+    .await?;
+```
+
+旧的顶层字段 `text_prompt`、`image_prompt`、`style_image` 已废弃。服务端会忽略顶层的这几个字段，所以 `texture_model` 会自动把它们移进 `texture_prompt`；1.0 版会删除。
 
 ### 生图模型
 

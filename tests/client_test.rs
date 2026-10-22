@@ -103,7 +103,10 @@ async fn image_to_model_sends_a_bare_input_string() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/generation/image-to-model"))
-        .and(body_json(json!({ "input": "https://ex.com/a.png" })))
+        .and(body_json(json!({
+            "input": "https://ex.com/a.png",
+            "model": "v3.1-20260211"
+        })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "code": 0,
             "data": { "task_id": "task_img" }
@@ -197,7 +200,7 @@ async fn multiview_to_model_reuses_a_task_id() {
     Mock::given(method("POST"))
         .and(path("/generation/multiview-to-model"))
         .and(body_json(
-            json!({ "inputs": [{ "task_id": "task_mv_src" }] }),
+            json!({ "inputs": [{ "task_id": "task_mv_src" }], "model": "v3.1-20260211" }),
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "code": 0,
@@ -459,7 +462,8 @@ async fn api_error_response_raises_error_api() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "code": 2010,
             "message": "Insufficient credits",
-            "suggestion": "Please top up your account"
+            "suggestion": "Please top up your account",
+            "request_id": "req_123"
         })))
         .mount(&server)
         .await;
@@ -469,10 +473,17 @@ async fn api_error_response_raises_error_api() {
         .text_to_model(TextToModelParams::new("a cat"))
         .await
         .unwrap_err();
+    assert!(err.to_string().contains("(request_id=req_123)"), "{err}");
     match err {
-        Error::Api { code, message, .. } => {
+        Error::Api {
+            code,
+            message,
+            request_id,
+            ..
+        } => {
             assert_eq!(code, 2010);
             assert_eq!(message.as_deref(), Some("Insufficient credits"));
+            assert_eq!(request_id.as_deref(), Some("req_123"));
         }
         other => panic!("expected Error::Api, got {other:?}"),
     }
@@ -493,7 +504,7 @@ async fn rig_check_rig_model_and_retarget_build_correct_payloads() {
     Mock::given(method("POST"))
         .and(path("/animations/rig"))
         .and(body_json(
-            json!({ "input": "task_src", "rig_type": "biped", "spec": "mixamo" }),
+            json!({ "input": "task_src", "rig_type": "biped", "spec": "mixamo", "model": "v3.0-20260909" }),
         ))
         .respond_with(
             ResponseTemplate::new(200)

@@ -30,12 +30,15 @@ pub enum Error {
 
     /// A well-formed `{ code, message, suggestion }` error envelope with a
     /// non-zero `code`.
-    #[error("Tripo API error (code={code}){}{}", message.as_deref().map(|m| format!(": {m}")).unwrap_or_default(), suggestion.as_deref().map(|s| format!(" — {s}")).unwrap_or_default())]
+    #[error("Tripo API error (code={code}){}{}{}", message.as_deref().map(|m| format!(": {m}")).unwrap_or_default(), suggestion.as_deref().map(|s| format!(" — {s}")).unwrap_or_default(), request_id.as_deref().map(|r| format!(" (request_id={r})")).unwrap_or_default())]
     Api {
         code: i64,
         message: Option<String>,
         suggestion: Option<String>,
         status: Option<u16>,
+        /// Identifies the failed request; quote it when contacting Tripo3D
+        /// support.
+        request_id: Option<String>,
     },
 
     /// A task reached a non-successful terminal state

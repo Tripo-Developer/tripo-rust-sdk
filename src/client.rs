@@ -18,11 +18,14 @@
 
 use crate::error::{Error, Result};
 use crate::http::{HttpClient, HttpConfig, RequestOptions};
-use crate::models::{Balance, Task, TaskCreated, TaskList, UploadedFile};
+use crate::models::{validate_views, Balance, Task, TaskCreated, TaskList, UploadedFile};
 use crate::params::*;
 use reqwest::Method;
 use serde::Serialize;
 use std::time::{Duration, Instant};
+
+/// The most task IDs `POST /v3/tasks/list` accepts per call.
+pub const MAX_LIST_TASKS: usize = 100;
 
 /// Options accepted by [`TripoClient::new`]. All fields are optional; `api_key`
 /// falls back to the `TRIPO_API_KEY` environment variable when unset.
@@ -171,16 +174,23 @@ impl TripoClient {
             .await
     }
 
-    /// `POST /v3/tasks/list` — batch query multiple tasks in one round trip.
-    pub async fn list_tasks(&self, task_ids: &[String]) -> Result<Vec<Task>> {
+    /// `POST /v3/tasks/list` — batch query up to [`MAX_LIST_TASKS`] tasks in
+    /// one round trip. IDs the server cannot find are reported in
+    /// [`TaskList::missed`] rather than as an error.
+    pub async fn list_tasks(&self, task_ids: &[String]) -> Result<TaskList> {
         if task_ids.is_empty() {
             return Err(Error::invalid_argument(
                 "list_tasks: `task_ids` must be non-empty",
             ));
         }
+        if task_ids.len() > MAX_LIST_TASKS {
+            return Err(Error::invalid_argument(format!(
+                "list_tasks: at most {MAX_LIST_TASKS} task IDs per call, got {}",
+                task_ids.len()
+            )));
+        }
         let body = serde_json::json!({ "task_ids": task_ids });
-        let result: TaskList = self
-            .http
+        self.http
             .request_json(
                 Method::POST,
                 "/tasks/list",
@@ -189,8 +199,7 @@ impl TripoClient {
                     retries: None,
                 },
             )
-            .await?;
-        Ok(result.tasks)
+            .await
     }
 
     /// Poll a task until it reaches a terminal state.
@@ -239,22 +248,33 @@ impl TripoClient {
 
     // ─────────────────────────── 3D Generation ─────────────────────────────
 
-    /// `POST /v3/generation/text-to-model`
-    pub async fn text_to_model(&self, params: TextToModelParams) -> Result<String> {
+    /// `POST /v3/generation/text-to-model`. Sends
+    /// [`model_version::H3_1`](crate::constants::model_version::H3_1) when no
+    /// `model` is set: the API currently rejects generation requests that omit
+    /// it.
+    pub async fn text_to_model(&self, mut params: TextToModelParams) -> Result<String> {
         if params.prompt.trim().is_empty() {
             return Err(Error::invalid_argument(
                 "text_to_model: `prompt` is required",
             ));
         }
+        if params.model.is_none() && !params.extra.contains_key("model") {
+            params.model = Some(crate::constants::model_version::H3_1.to_string());
+        }
         self.create_task("/generation/text-to-model", &params).await
     }
 
-    /// `POST /v3/generation/image-to-model`
-    pub async fn image_to_model(&self, params: ImageToModelParams) -> Result<String> {
+    /// `POST /v3/generation/image-to-model`. Sends
+    /// [`model_version::H3_1`](crate::constants::model_version::H3_1) when no
+    /// `model` is set.
+    pub async fn image_to_model(&self, mut params: ImageToModelParams) -> Result<String> {
         if params.input.is_empty() {
             return Err(Error::invalid_argument(
                 "image_to_model: `input` is required (url, file_token, or task_id)",
             ));
+        }
+        if params.model.is_none() && !params.extra.contains_key("model") {
+            params.model = Some(crate::constants::model_version::H3_1.to_string());
         }
         self.create_task("/generation/image-to-model", &params)
             .await
@@ -265,12 +285,19 @@ impl TripoClient {
     /// The positional form is a fixed `[front, left, back, right]` array, so
     /// the type system guarantees its length; what is checked here is that a
     /// front view is present and at least 2 views are supplied.
-    pub async fn multiview_to_model(&self, params: MultiviewToModelParams) -> Result<String> {
+    /// Sends [`model_version::H3_1`](crate::constants::model_version::H3_1)
+    /// when no `model` is set.
+    pub async fn multiview_to_model(&self, mut params: MultiviewToModelParams) -> Result<String> {
         match &params.inputs {
             None => {
                 return Err(Error::invalid_argument(
-                    "multiview_to_model: provide `inputs` ([front, left, back, right]) or a source task_id",
+                    "multiview_to_model: provide `inputs` (view-keyed, [front, left, back, right], or a source task_id)",
                 ))
+            }
+            Some(MultiviewInputs::Keyed(views)) => {
+                validate_views(views).map_err(|e| {
+                    Error::invalid_argument(format!("multiview_to_model: `inputs`: {e}"))
+                })?;
             }
             Some(MultiviewInputs::Views(views)) => {
                 if views[0].is_empty() {
@@ -285,6 +312,9 @@ impl TripoClient {
                 }
             }
             Some(MultiviewInputs::TaskId(_)) => {}
+        }
+        if params.model.is_none() && !params.extra.contains_key("model") {
+            params.model = Some(crate::constants::model_version::H3_1.to_string());
         }
         self.create_task("/generation/multiview-to-model", &params)
             .await
@@ -354,11 +384,22 @@ impl TripoClient {
     // ───────────────────────── Model post-processing ────────────────────────
 
     /// `POST /v3/models/texture` — re-texture an existing model.
-    pub async fn texture_model(&self, params: TextureModelParams) -> Result<String> {
+    ///
+    /// The deprecated top-level `text_prompt`, `image_prompt` and
+    /// `style_image` fields are moved into `texture_prompt` before sending.
+    pub async fn texture_model(&self, mut params: TextureModelParams) -> Result<String> {
         if params.input.trim().is_empty() {
             return Err(Error::invalid_argument(
                 "texture_model: `input` (source task_id) is required",
             ));
+        }
+        params
+            .migrate_deprecated_prompt()
+            .map_err(|e| Error::invalid_argument(format!("texture_model: {e}")))?;
+        if let Some(prompt) = &params.texture_prompt {
+            prompt.validate().map_err(|e| {
+                Error::invalid_argument(format!("texture_model: `texture_prompt`: {e}"))
+            })?;
         }
         self.create_task("/models/texture", &params).await
     }
@@ -428,12 +469,17 @@ impl TripoClient {
         self.create_task("/animations/rig-check", &params).await
     }
 
-    /// `POST /v3/animations/rig` — attach a skeleton to a model.
-    pub async fn rig_model(&self, params: RigModelParams) -> Result<String> {
+    /// `POST /v3/animations/rig` — attach a skeleton to a model. Sends
+    /// [`rig_model::V3_0`](crate::constants::rig_model::V3_0) when no `model`
+    /// is set.
+    pub async fn rig_model(&self, mut params: RigModelParams) -> Result<String> {
         if params.input.trim().is_empty() {
             return Err(Error::invalid_argument(
                 "rig_model: `input` (source task_id) is required",
             ));
+        }
+        if params.model.is_none() && !params.extra.contains_key("model") {
+            params.model = Some(crate::constants::rig_model::V3_0.to_string());
         }
         self.create_task("/animations/rig", &params).await
     }

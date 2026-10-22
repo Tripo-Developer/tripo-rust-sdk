@@ -103,7 +103,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | --- | --- | --- |
 | `text_to_model(params)` | `POST /generation/text-to-model` | Text → 3D model |
 | `image_to_model(params)` | `POST /generation/image-to-model` | Single image → 3D model |
-| `multiview_to_model(params)` | `POST /generation/multiview-to-model` | 4 views `[front, left, back, right]` → 3D model |
+| `multiview_to_model(params)` | `POST /generation/multiview-to-model` | 2–4 views (keyed by angle via `from_view_images`, or positional `[front, left, back, right]`) → 3D model |
 | `text_to_image(params)` | `POST /generation/text-to-image` | Concept image from text |
 | `image_to_image(params)` | `POST /generation/image-to-image` | Image style / edit |
 | `image_to_multiview(params)` | `POST /generation/image-to-multiview` | Image → 4-view sheet |
@@ -113,7 +113,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `texture_model(params)` | `POST /models/texture` | Re-texture an existing model |
+| `texture_model(params)` | `POST /models/texture` | Re-texture an existing model, guided by `texture_prompt` |
 | `convert_model(params)` | `POST /models/convert` | Convert to GLTF / FBX / OBJ / STL / USDZ / 3MF |
 | `segment_mesh(params)` | `POST /mesh/segment` | Semantic segmentation |
 | `complete_mesh(params)` | `POST /mesh/complete` | Mesh completion / repair |
@@ -125,7 +125,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `rig_check(params)` | `POST /animations/rig-check` | Detect whether a model is riggable |
-| `rig_model(params)` | `POST /animations/rig` | Attach a skeleton |
+| `rig_model(params)` | `POST /animations/rig` | Attach a skeleton (sends `rig_model::V3_0` when `model` is unset) |
 | `retarget_animation(params)` | `POST /animations/retarget` | Apply preset animations |
 
 ### Utility
@@ -133,7 +133,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `get_task(task_id)` | `GET /tasks/{task_id}` | Fetch a task snapshot |
-| `list_tasks(task_ids)` | `POST /tasks/list` | Batch task query |
+| `list_tasks(task_ids)` | `POST /tasks/list` | Batch-query up to 100 tasks; returns `tasks` keyed by task_id plus the `missed` IDs |
 | `wait_for_task(task_id, opts)` | — | Poll until terminal state |
 | `wait_for_task_with_progress(task_id, opts, cb)` | — | Same, with a progress callback |
 | `upload_file(bytes, filename, content_type)` | `POST /files` | Upload a raw file and get a `file_token` |
@@ -200,7 +200,7 @@ let model_id = client
 ```rust
 use tripo3d_sdk::{
     ClientOptions, TripoClient, WaitOptions,
-    constants::model_version,
+    constants::{model_version, rig_model},
     params::{ImageToModelParams, RigCheckParams, RigModelParams, RetargetAnimationParams},
 };
 
@@ -226,6 +226,7 @@ assert!(output.riggable.unwrap_or(false), "model is not riggable");
 // 3. Attach skeleton (Mixamo-compatible bones -> Unity/Unreal ready)
 let rig_id = client
     .rig_model(RigModelParams {
+        model: Some(rig_model::V3_0.into()),
         rig_type: output.rig_type.clone(),
         spec: Some("mixamo".into()),
         ..RigModelParams::new(model_id.as_str())
@@ -255,8 +256,8 @@ use tripo3d_sdk::Error;
 
 match client.text_to_model(params).await {
     Ok(task_id) => { /* ... */ }
-    Err(Error::Api { code, message, suggestion, .. }) => {
-        eprintln!("API error {code}: {message:?} — {suggestion:?}");
+    Err(Error::Api { code, message, suggestion, request_id, .. }) => {
+        eprintln!("API error {code}: {message:?} — {suggestion:?} (request_id={request_id:?})");
     }
     Err(Error::Task { task }) => {
         eprintln!("Task {} failed: {:?}", task.task_id, task.error_message);
@@ -320,13 +321,42 @@ OutputFormat::Fbx;                 // serializes as "FBX"
 
 | Constant | Value | Notes |
 | --- | --- | --- |
-| `model_version::H3_1` | `v3.1-20260211` | Latest, best quality (default) |
+| `model_version::H3_1` | `v3.1-20260211` | Latest, best quality. `text_to_model`, `image_to_model` and `multiview_to_model` send it when `model` is `None` |
 | `model_version::H3_0` | `v3.0-20250812` | Stable, advanced features |
 | `model_version::H2_5` | `v2.5-20250123` | Legacy; does not accept `geometry_quality` |
 | `model_version::P1` | `P1-20260311` | Low-poly, clean topology |
 | `model_version::P2` | `P2-20260801` | Next-gen P series, quad output. Preview |
 
 `quad` is accepted only by `model_version::P2` within the P series — sending it with `P1` returns a `400`. P1 also rejects `smart_low_poly`, `generate_parts`, and `geometry_quality`. Enabling `quad` also forces the output format to **FBX** instead of GLB, so derive the file extension from `model_url` rather than assuming `.glb` — use `downloaded.filename(name)` for that.
+
+### Texture, rigging and post-processing models
+
+| Module | Used by | Notes |
+| --- | --- | --- |
+| `texture_version::{V3_5, V3_0, V2_5}` | `texture_version` on the generation endpoints, `model` on `texture_model` | `texture_quality::FAST` and `delight` require `V3_5` |
+| `rig_model::{V1_0, V2_5, V3_0}` | `rig_model` | `rig_model` sends `V3_0` when `model` is unset. Only V3.0 accepts `RigType::Others` and the `ActorCore` / `Unity` / `Unreal` / `Vrm` specs |
+| `decimate_model::{V1_0, V2_0, V3_0}` | `decimate_mesh` | Server default V2.0; `smart_uv` requires V3.0 |
+| `segment_model::{V1, V2}` | `segment_mesh` | `segmentation_granularity`, `split_by_connectivity` and `ref_image` require V2 (beta) |
+| `completion_mode::{AI_COMPLETION, QUICK_CAP}` | `complete_mesh` | AI completion (default) or a fast cap of open boundaries |
+| `fbx_preset::{BLENDER, MAX_3DS, MIXAMO, BAKE_SCALE}` | `convert_model` | FBX compatibility profile |
+
+`RigSpec` is `#[non_exhaustive]`, so `match` on it needs a wildcard arm.
+
+Re-texturing takes a nested `TexturePrompt`. `text`, `image` and `images` are mutually exclusive, and `style_image` only goes with `text`:
+
+```rust
+use tripo3d_sdk::{constants::texture_version, params::TextureModelParams, TexturePrompt};
+
+client
+    .texture_model(TextureModelParams {
+        model: Some(texture_version::V3_5.into()),
+        texture_prompt: Some(TexturePrompt::text("weathered red paint")),
+        ..TextureModelParams::new(model_id.as_str())
+    })
+    .await?;
+```
+
+The old top-level `text_prompt`, `image_prompt` and `style_image` fields are deprecated. The API ignores them at the top level, so `texture_model` moves them into `texture_prompt` for you; they will be removed in 1.0.
 
 ### Image generation models
 
