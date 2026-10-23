@@ -165,6 +165,7 @@ impl ImageToModelParams {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum MultiviewInputs {
     /// 2 to 4 images keyed by angle, in any order (recommended). The front
     /// view is mandatory.
