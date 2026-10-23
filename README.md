@@ -351,6 +351,16 @@ from now, to stop replays. Failed deliveries are retried, so use the
 `Tripo-Webhook-Delivery` header (`webhook::DELIVERY_HEADER`) to drop
 duplicates.
 
+## OpenAI-compatible image API
+
+Tripo also serves image generation and editing over the OpenAI Images API
+protocol, at `<base URL>/openai` (for example
+`https://openapi.tripo3d.ai/v3/openai`). This SDK doesn't wrap it: point any
+OpenAI-compatible client at that URL with your Tripo API key. Only
+`gpt-image-2`, `gpt-image-2.5-flare` and `gpt-image-2.5-sunburst` are
+accepted. Images come back as signed URLs, never `b64_json`, and there is no
+`usage` field; billing is the same as `text_to_image` / `image_to_image`.
+
 ## Constants
 
 ```rust
