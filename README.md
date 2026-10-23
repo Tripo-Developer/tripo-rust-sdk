@@ -30,7 +30,7 @@ Or from git / a local path while developing against this repo:
 
 ```toml
 [dependencies]
-tripo3d-sdk = { git = "https://github.com/VAST-AI-Research/tripo-rust-sdk.git" }
+tripo3d-sdk = { git = "https://github.com/Tripo-Developer/tripo-rust-sdk.git" }
 # tripo3d-sdk = { path = "../tripo3d-sdk-rust" }
 ```
 

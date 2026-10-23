@@ -30,7 +30,7 @@ tokio = { version = "1", features = ["full"] }
 
 ```toml
 [dependencies]
-tripo3d-sdk = { git = "https://github.com/VAST-AI-Research/tripo-rust-sdk.git" }
+tripo3d-sdk = { git = "https://github.com/Tripo-Developer/tripo-rust-sdk.git" }
 # tripo3d-sdk = { path = "../tripo3d-sdk-rust" }
 ```
 

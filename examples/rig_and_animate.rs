@@ -17,7 +17,7 @@ use tripo3d_sdk::{
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let image_url = env::args().nth(1).unwrap_or_else(|| {
-        "https://raw.githubusercontent.com/VAST-AI-Research/tripo-python-sdk/master/example.png"
+        "https://raw.githubusercontent.com/Tripo-Developer/tripo-rust-sdk/main/assets/character.jpg"
             .to_string()
     });
 

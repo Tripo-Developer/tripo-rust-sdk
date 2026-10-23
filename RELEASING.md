@@ -36,7 +36,7 @@ Publishing** → **Add a new publisher** → **GitHub**:
 
 | Field | Value |
 | --- | --- |
-| Repository owner | `VAST-AI-Research` |
+| Repository owner | `Tripo-Developer` |
 | Repository name | `tripo-rust-sdk` |
 | Workflow filename | `publish.yml` |
 | Environment | *(blank)* |
