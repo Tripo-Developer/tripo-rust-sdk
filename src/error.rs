@@ -4,7 +4,8 @@
 //!   ├── Request   — transport/network/HTTP-status failures
 //!   ├── Api       — well-formed error responses (non-zero `code`)
 //!   ├── Task      — task ended in `failed` / `cancelled` / `banned` / `expired`
-//!   └── Timeout   — `wait_for_task` exceeded its timeout budget
+//!   ├── Timeout   — `wait_for_task` exceeded its timeout budget
+//!   └── WebhookSignature — a webhook delivery failed verification
 
 use crate::models::Task;
 use thiserror::Error;
@@ -49,6 +50,11 @@ pub enum Error {
     /// `wait_for_task` exceeded the caller-supplied timeout.
     #[error("timed out after {timeout_ms}ms waiting for task {task_id}")]
     Timeout { task_id: String, timeout_ms: u64 },
+
+    /// A webhook delivery failed signature verification; respond with an
+    /// HTTP 4xx.
+    #[error("webhook signature verification failed: {0}")]
+    WebhookSignature(String),
 
     /// A caller-supplied argument was invalid (e.g. missing required field).
     #[error("invalid argument: {0}")]

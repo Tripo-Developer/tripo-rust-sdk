@@ -104,6 +104,7 @@ pub struct ClientOptions {
 | `image_to_image(params)` | `POST /generation/image-to-image` | 图片风格转换 / 编辑 |
 | `image_to_multiview(params)` | `POST /generation/image-to-multiview` | 单图 → 4 视角图集 |
 | `edit_multiview(params)` | `POST /generation/edit-multiview` | 编辑已生成的多视角图集 |
+| `image_to_splat(params)` | `POST /generation/image-to-splat` | 单图 → 3D 高斯泼溅（`.splat`） |
 
 ### 模型后处理
 
@@ -111,7 +112,9 @@ pub struct ClientOptions {
 | --- | --- | --- |
 | `texture_model(params)` | `POST /models/texture` | 为已有模型重新贴图，用 `texture_prompt` 描述要求 |
 | `convert_model(params)` | `POST /models/convert` | 转换为 GLTF / FBX / OBJ / STL / USDZ / 3MF |
+| `import_model(params)` | `POST /models/import` | 导入外部 GLB / GLTF / FBX / OBJ / STL，供后处理接口使用（免费） |
 | `segment_mesh(params)` | `POST /mesh/segment` | 语义分割 |
+| `smart_segment(params)` | `POST /mesh/smartsegment` | 从图片（`SmartSegmentParams::image`）或 GLB（`SmartSegmentParams::model`，须传变换矩阵）一键分割；结果在 `output.seg_model_url` |
 | `complete_mesh(params)` | `POST /mesh/complete` | 网格补全 / 修复 |
 | `decimate_mesh(params)` | `POST /mesh/decimate` | 减面 / 重拓扑 |
 | `mesh_uv(params)` | `POST /mesh/uv` | 重新展 UV，并映射原有贴图 / 骨骼 / 动画；额外返回 UV 布局预览图 |
@@ -133,8 +136,13 @@ pub struct ClientOptions {
 | `wait_for_task(task_id, opts)` | — | 轮询直到任务进入终态 |
 | `wait_for_task_with_progress(task_id, opts, cb)` | — | 同上，附带进度回调 |
 | `upload_file(bytes, filename, content_type)` | `POST /files` | 上传文件，返回 `file_token` |
+| `upload_large_file_from_path(path, format)` | `POST /files/presign` + PUT | 把磁盘上的文件直接流式上传到存储；超过 60 MB 时推荐使用 |
+| `upload_large_file(bytes, format)` | `POST /files/presign` + PUT | 同上，数据在内存中 |
+| `presign_upload(format)` | `POST /files/presign` | 预留 `file_token` 和用于 PUT 的存储地址 |
 | `get_balance()` | `GET /account/balance` | 查询账户余额 |
+| `get_usage(opts)` | `GET /account/usage` | 按任务列出积分消耗，最新的在前（`limit` 最大 200，可用 `offset` 翻页） |
 | `download_model(&task)` | — | 把任务的主模型 URL 下载为 `Vec<u8>` |
+| `webhook::verify_webhook(payload, header, secret, opts)` | — | 校验并解析一次 webhook 推送 |
 
 ---
 
@@ -186,6 +194,20 @@ let model_id = client
         ..ImageToModelParams::new(image_id.as_str())
     })
     .await?;
+```
+
+### 大文件与外部模型
+
+`upload_file` 会让文件经过 API 服务器中转。超过 60 MB 的文件请用 `upload_large_file_from_path`，它把文件从磁盘直接流式传到存储；`format` 默认取文件扩展名。之后用 `import_model` 把外部模型变成一个任务，后处理接口就能直接使用它：
+
+```rust
+use tripo3d_sdk::params::{ImportModelParams, RigModelParams};
+
+let uploaded = client.upload_large_file_from_path("./character.fbx", None).await?;
+
+let import_id = client.import_model(ImportModelParams::new(uploaded.file_token)).await?;
+client.wait_for_task(&import_id, WaitOptions::default()).await?;
+let rig_id = client.rig_model(RigModelParams::new(import_id)).await?;
 ```
 
 ---
@@ -303,6 +325,26 @@ match client.image_to_image(params).await {
 ```
 
 此时应先去任务列表核对,不要盲目重发——盲目重试正是重复扣费的根源。
+
+## Webhook
+
+除了轮询，也可以在控制台配置一个地址，让 Tripo 主动推送 `task.completed`、`task.failed` 和 `balance.low` 事件。处理前先用该地址的签名密钥（`whsec_…`）校验每次推送，并且必须传入原样收到的请求体：
+
+```rust
+use tripo3d_sdk::webhook::{self, WebhookOptions};
+
+// `body` 是原始请求体，`signature` 是 Tripo-Webhook-Signature 请求头。
+match webhook::verify_webhook(&body, signature, &secret, WebhookOptions::default()) {
+    Ok(event) if event.event_type == webhook::TASK_COMPLETED => {
+        println!("{:?}", event.task()?.primary_model_url());
+    }
+    Ok(_) => {}
+    Err(Error::WebhookSignature(_)) => { /* 返回 400 */ }
+    Err(e) => return Err(e),
+}
+```
+
+`verify_webhook` 还会拒绝时间戳与当前时间相差超过 5 分钟的推送，以防重放。推送失败会重试，所以请用 `Tripo-Webhook-Delivery` 请求头（`webhook::DELIVERY_HEADER`）去重。
 
 ## 常量枚举
 

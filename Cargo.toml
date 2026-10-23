@@ -26,11 +26,13 @@ include = [
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "fs"] }
 thiserror = "1"
 url = "2"
 rand = "0.8"
 bytes = "1"
+hmac = "0.13"
+sha2 = "0.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

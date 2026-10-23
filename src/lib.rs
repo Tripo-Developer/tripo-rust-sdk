@@ -24,20 +24,25 @@ pub mod constants;
 mod error;
 pub mod models;
 pub mod params;
+pub mod webhook;
 
 mod http;
 
-pub use client::MAX_LIST_TASKS;
-pub use client::{ClientOptions, DownloadedModel, TripoClient, WaitOptions};
+pub use client::{
+    ClientOptions, DownloadedModel, TripoClient, UsageOptions, WaitOptions, MAX_LIST_TASKS,
+    MAX_USAGE_LIMIT,
+};
 pub use constants::{
     aspect_ratio, completion_mode, decimate_model, export_orientation, fbx_preset,
     geometry_quality, image_background, image_format, image_model, image_quality, image_template,
-    model_version, orientation, rig_model, segment_model, segmentation_granularity,
-    texture_alignment, texture_quality, texture_version, view, AnimOutFormat, Animation,
-    OutputFormat, RigSpec, RigType, TaskStatus, TextureFormat, DEFAULT_BASE_URL,
+    model_version, orientation, rig_model, seg_type, segment_model, segmentation_granularity,
+    smart_segment_granularity, texture_alignment, texture_quality, texture_version, view,
+    AnimOutFormat, Animation, OutputFormat, RigSpec, RigType, TaskStatus, TextureFormat,
+    DEFAULT_BASE_URL,
 };
 pub use error::{Error, Result};
 pub use models::{
-    Balance, FileDescriptor, FileInput, MultiviewPrompt, MultiviewTaskRef, ObjectRef, Task,
-    TaskList, TaskOutput, TexturePrompt, UploadedFile, ViewImage,
+    Balance, FileDescriptor, FileInput, MultiviewPrompt, MultiviewTaskRef, ObjectRef,
+    PresignedUpload, Task, TaskList, TaskOutput, TexturePrompt, UploadedFile, UsageRecord,
+    ViewImage,
 };

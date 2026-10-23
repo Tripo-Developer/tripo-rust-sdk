@@ -222,6 +222,22 @@ pub mod segmentation_granularity {
     pub const DETAILED: &str = "detailed";
 }
 
+/// `seg_type` of `POST /v3/mesh/smartsegment`.
+pub mod seg_type {
+    /// Generates a model from a PNG, JPEG or WebP image and segments it.
+    pub const IMAGE: &str = "image";
+    /// Segments an existing GLB model; requires a `transform`.
+    pub const MODEL: &str = "model";
+}
+
+/// `granularity` of `POST /v3/mesh/smartsegment`. The server defaults to
+/// [`smart_segment_granularity::MEDIUM`].
+pub mod smart_segment_granularity {
+    pub const COARSE: &str = "coarse";
+    pub const MEDIUM: &str = "medium";
+    pub const FINE: &str = "fine";
+}
+
 /// `completion_mode` of `POST /v3/mesh/complete`.
 pub mod completion_mode {
     /// Fills missing regions with generated geometry (default).

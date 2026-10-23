@@ -85,6 +85,21 @@ pub struct TaskOutput {
     /// UV layout preview image produced by `mesh_uv`.
     #[serde(default)]
     pub uv_render_url: Option<String>,
+    /// Segmented model produced by `smart_segment`.
+    #[serde(default)]
+    pub seg_model_url: Option<String>,
+    /// Segmentation mask produced by `smart_segment`.
+    #[serde(default)]
+    pub mask_url: Option<String>,
+    /// Comma-separated part list detected by `smart_segment`.
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// ID of the segmentation task `smart_segment` ran internally.
+    #[serde(default)]
+    pub seg_task_id: Option<String>,
+    /// ID of the generation task `smart_segment` ran internally.
+    #[serde(default)]
+    pub model_task_id: Option<String>,
     #[serde(default)]
     pub riggable: Option<bool>,
     #[serde(default)]
@@ -107,6 +122,7 @@ impl TaskOutput {
                     .as_ref()
                     .and_then(|v| v.first().map(String::as_str))
             })
+            .or(self.seg_model_url.as_deref())
     }
 }
 
@@ -135,6 +151,37 @@ pub struct Balance {
     pub balance: f64,
     #[serde(default)]
     pub frozen: Option<f64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// One entry of `GET /v3/account/usage`: the credits a single task
+/// consumed.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UsageRecord {
+    pub task_id: String,
+    /// Task type, e.g. `"image_to_model"` or `"animate_rig"`.
+    #[serde(rename = "type")]
+    pub task_type: String,
+    pub status: TaskStatus,
+    #[serde(default)]
+    pub credits_consumed: f64,
+    /// ISO 8601 creation time.
+    pub created_at: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+/// `POST /v3/files/presign` response payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PresignedUpload {
+    /// Accepts a single HTTP PUT of the file body. It carries its own
+    /// signature, so the request must not send an `Authorization` header.
+    pub presigned_url: String,
+    /// Refers to the uploaded file once the PUT has succeeded.
+    pub file_token: String,
+    /// Lifetime of `presigned_url` in seconds.
+    pub expires_in: u64,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }

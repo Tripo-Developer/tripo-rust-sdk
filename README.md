@@ -108,6 +108,7 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | `image_to_image(params)` | `POST /generation/image-to-image` | Image style / edit |
 | `image_to_multiview(params)` | `POST /generation/image-to-multiview` | Image → 4-view sheet |
 | `edit_multiview(params)` | `POST /generation/edit-multiview` | Refine multiview output |
+| `image_to_splat(params)` | `POST /generation/image-to-splat` | Single image → 3D Gaussian splat (`.splat`) |
 
 ### Model post-processing
 
@@ -115,7 +116,9 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | --- | --- | --- |
 | `texture_model(params)` | `POST /models/texture` | Re-texture an existing model, guided by `texture_prompt` |
 | `convert_model(params)` | `POST /models/convert` | Convert to GLTF / FBX / OBJ / STL / USDZ / 3MF |
+| `import_model(params)` | `POST /models/import` | Bring an external GLB / GLTF / FBX / OBJ / STL into Tripo for post-processing (free) |
 | `segment_mesh(params)` | `POST /mesh/segment` | Semantic segmentation |
+| `smart_segment(params)` | `POST /mesh/smartsegment` | Segmentation pipeline from an image (`SmartSegmentParams::image`) or a GLB (`SmartSegmentParams::model`, with a transform); result in `output.seg_model_url` |
 | `complete_mesh(params)` | `POST /mesh/complete` | Mesh completion / repair |
 | `decimate_mesh(params)` | `POST /mesh/decimate` | Retopology / face-count reduction |
 | `mesh_uv(params)` | `POST /mesh/uv` | Re-unwrap UVs, remapping textures / rig / animations; also returns a UV layout preview |
@@ -137,8 +140,13 @@ Every generation method returns a `task_id` (`String`). Use `wait_for_task()` / 
 | `wait_for_task(task_id, opts)` | — | Poll until terminal state |
 | `wait_for_task_with_progress(task_id, opts, cb)` | — | Same, with a progress callback |
 | `upload_file(bytes, filename, content_type)` | `POST /files` | Upload a raw file and get a `file_token` |
+| `upload_large_file_from_path(path, format)` | `POST /files/presign` + PUT | Stream a file on disk straight to storage; recommended over 60 MB |
+| `upload_large_file(bytes, format)` | `POST /files/presign` + PUT | Same, from memory |
+| `presign_upload(format)` | `POST /files/presign` | Reserve a `file_token` and a storage URL to PUT to |
 | `get_balance()` | `GET /account/balance` | Account credit balance |
+| `get_usage(opts)` | `GET /account/usage` | Credits consumed per task, newest first (`limit` up to 200, `offset`) |
 | `download_model(&task)` | — | Download the primary model URL into a `Vec<u8>` |
+| `webhook::verify_webhook(payload, header, secret, opts)` | — | Verify and decode a webhook delivery |
 
 ---
 
@@ -191,6 +199,23 @@ let model_id = client
         ..ImageToModelParams::new(image_id.as_str())
     })
     .await?;
+```
+
+### Large files and external models
+
+`upload_file` sends the file through the API server. For files over 60 MB, use
+`upload_large_file_from_path`, which streams the file from disk straight to
+storage; `format` defaults to the file's extension. Then `import_model` turns
+an external model into a task that the post-processing endpoints accept:
+
+```rust
+use tripo3d_sdk::params::{ImportModelParams, RigModelParams};
+
+let uploaded = client.upload_large_file_from_path("./character.fbx", None).await?;
+
+let import_id = client.import_model(ImportModelParams::new(uploaded.file_token)).await?;
+client.wait_for_task(&import_id, WaitOptions::default()).await?;
+let rig_id = client.rig_model(RigModelParams::new(import_id)).await?;
 ```
 
 ---
@@ -299,6 +324,32 @@ match client.image_to_image(params).await {
 
 Reconcile against your task list before resubmitting; retrying blindly is
 what causes double charges.
+
+## Webhooks
+
+Instead of polling, Tripo can POST `task.completed`, `task.failed` and
+`balance.low` events to an endpoint configured in the console. Verify each
+delivery against the endpoint's signing secret (`whsec_…`) before acting on
+it, and pass the body exactly as received:
+
+```rust
+use tripo3d_sdk::webhook::{self, WebhookOptions};
+
+// `body` is the raw request body, `signature` the Tripo-Webhook-Signature header.
+match webhook::verify_webhook(&body, signature, &secret, WebhookOptions::default()) {
+    Ok(event) if event.event_type == webhook::TASK_COMPLETED => {
+        println!("{:?}", event.task()?.primary_model_url());
+    }
+    Ok(_) => {}
+    Err(Error::WebhookSignature(_)) => { /* respond 400 */ }
+    Err(e) => return Err(e),
+}
+```
+
+`verify_webhook` also rejects deliveries whose timestamp is more than 5 minutes
+from now, to stop replays. Failed deliveries are retried, so use the
+`Tripo-Webhook-Delivery` header (`webhook::DELIVERY_HEADER`) to drop
+duplicates.
 
 ## Constants
 

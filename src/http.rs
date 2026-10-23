@@ -205,6 +205,41 @@ impl HttpClient {
         Ok((bytes.to_vec(), content_type))
     }
 
+    /// PUT `size` bytes to a presigned storage URL. The URL carries its own
+    /// signature, so no `Authorization` header is sent: storage rejects
+    /// requests with a second credential. There is no timeout, since large
+    /// uploads can legitimately take long, and no retry, since a streamed
+    /// body cannot be replayed.
+    pub async fn put_raw(&self, url: &str, body: reqwest::Body, size: u64) -> Result<()> {
+        let response = self
+            .inner
+            .put(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .header(reqwest::header::CONTENT_LENGTH, size)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| Error::Request {
+                message: format!("upload to storage failed: {e}"),
+                status: None,
+                body: None,
+                source: Some(e),
+                indeterminate: false,
+            })?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.ok();
+            return Err(Error::Request {
+                message: format!("upload to storage failed with HTTP {status}"),
+                status: Some(status),
+                body,
+                source: None,
+                indeterminate: false,
+            });
+        }
+        Ok(())
+    }
+
     async fn execute(
         &self,
         method: Method,

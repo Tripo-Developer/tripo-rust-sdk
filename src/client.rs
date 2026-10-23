@@ -18,7 +18,10 @@
 
 use crate::error::{Error, Result};
 use crate::http::{HttpClient, HttpConfig, RequestOptions};
-use crate::models::{validate_views, Balance, Task, TaskCreated, TaskList, UploadedFile};
+use crate::models::{
+    validate_views, Balance, PresignedUpload, Task, TaskCreated, TaskList, UploadedFile,
+    UsageRecord,
+};
 use crate::params::*;
 use reqwest::Method;
 use serde::Serialize;
@@ -26,6 +29,19 @@ use std::time::{Duration, Instant};
 
 /// The most task IDs `POST /v3/tasks/list` accepts per call.
 pub const MAX_LIST_TASKS: usize = 100;
+
+/// The most records `GET /v3/account/usage` returns per call.
+pub const MAX_USAGE_LIMIT: u32 = 200;
+
+/// Paging for [`TripoClient::get_usage`]. The default returns the server's
+/// 50 most recent records.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UsageOptions {
+    /// Number of records, from 1 to [`MAX_USAGE_LIMIT`].
+    pub limit: Option<u32>,
+    /// Skips that many of the most recent records.
+    pub offset: Option<u32>,
+}
 
 /// Options accepted by [`TripoClient::new`]. All fields are optional; `api_key`
 /// falls back to the `TRIPO_API_KEY` environment variable when unset.
@@ -141,6 +157,31 @@ impl TripoClient {
             .await
     }
 
+    /// `GET /v3/account/usage` — credits consumed per task, newest first.
+    /// With the default options the server returns the 50 most recent
+    /// records.
+    pub async fn get_usage(&self, opts: UsageOptions) -> Result<Vec<UsageRecord>> {
+        let mut query = Vec::new();
+        if let Some(limit) = opts.limit {
+            if limit == 0 || limit > MAX_USAGE_LIMIT {
+                return Err(Error::invalid_argument(format!(
+                    "get_usage: `limit` must be between 1 and {MAX_USAGE_LIMIT}, got {limit}"
+                )));
+            }
+            query.push(format!("limit={limit}"));
+        }
+        if let Some(offset) = opts.offset {
+            query.push(format!("offset={offset}"));
+        }
+        let mut path = "/account/usage".to_string();
+        if !query.is_empty() {
+            path = format!("{path}?{}", query.join("&"));
+        }
+        self.http
+            .request_json(Method::GET, &path, RequestOptions::default())
+            .await
+    }
+
     // ─────────────────────────────── Files ─────────────────────────────────
 
     /// `POST /v3/files` — upload a raw file and receive a `file_token`.
@@ -159,6 +200,97 @@ impl TripoClient {
         }
         let form = reqwest::multipart::Form::new().part("file", part);
         self.http.request_multipart("/files", form).await
+    }
+
+    /// `POST /v3/files/presign` — reserve a `file_token` and a URL to PUT
+    /// the file to. `format` is the file extension, such as `"glb"`; a
+    /// leading dot is ignored. Most callers want
+    /// [`TripoClient::upload_large_file`] or
+    /// [`TripoClient::upload_large_file_from_path`], which also perform the
+    /// PUT.
+    pub async fn presign_upload(&self, format: &str) -> Result<PresignedUpload> {
+        let format = normalize_format(format);
+        if format.is_empty() {
+            return Err(Error::invalid_argument(
+                "presign_upload: `format` (file extension) is required",
+            ));
+        }
+        let body = serde_json::json!({ "format": format });
+        self.http
+            .request_json(
+                Method::POST,
+                "/files/presign",
+                RequestOptions {
+                    json: Some(&body),
+                    retries: None,
+                },
+            )
+            .await
+    }
+
+    /// Upload `bytes` straight to storage and return the file's token. This
+    /// is the recommended path for files over 60 MB: the file never passes
+    /// through the API server. To avoid loading a file on disk into memory,
+    /// use [`TripoClient::upload_large_file_from_path`].
+    ///
+    /// The upload has no timeout and is not retried.
+    pub async fn upload_large_file(&self, bytes: Vec<u8>, format: &str) -> Result<UploadedFile> {
+        if bytes.is_empty() {
+            return Err(Error::invalid_argument(
+                "upload_large_file: `bytes` is empty",
+            ));
+        }
+        let size = bytes.len() as u64;
+        self.upload_presigned(format, reqwest::Body::from(bytes), size)
+            .await
+    }
+
+    /// Stream a file on disk straight to storage and return its token.
+    /// `format` defaults to the file's extension. See
+    /// [`TripoClient::upload_large_file`].
+    pub async fn upload_large_file_from_path(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        format: Option<&str>,
+    ) -> Result<UploadedFile> {
+        let path = path.as_ref();
+        let format = match format {
+            Some(f) => f.to_string(),
+            None => path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    Error::invalid_argument(
+                        "upload_large_file_from_path: the path has no extension; pass `format`",
+                    )
+                })?,
+        };
+        let file = tokio::fs::File::open(path).await?;
+        let size = file.metadata().await?.len();
+        if size == 0 {
+            return Err(Error::invalid_argument(
+                "upload_large_file_from_path: the file is empty",
+            ));
+        }
+        self.upload_presigned(&format, reqwest::Body::from(file), size)
+            .await
+    }
+
+    async fn upload_presigned(
+        &self,
+        format: &str,
+        body: reqwest::Body,
+        size: u64,
+    ) -> Result<UploadedFile> {
+        let presigned = self.presign_upload(format).await?;
+        self.http
+            .put_raw(&presigned.presigned_url, body, size)
+            .await?;
+        Ok(UploadedFile {
+            file_token: presigned.file_token,
+            extra: Default::default(),
+        })
     }
 
     // ────────────────────────── Task management ────────────────────────────
@@ -320,6 +452,19 @@ impl TripoClient {
             .await
     }
 
+    /// `POST /v3/generation/image-to-splat` — reconstruct a 3D Gaussian
+    /// splat from one image. The finished task's `model_url` points to a
+    /// `.splat` file.
+    pub async fn image_to_splat(&self, params: ImageToSplatParams) -> Result<String> {
+        if params.input.trim().is_empty() {
+            return Err(Error::invalid_argument(
+                "image_to_splat: `input` (file_token or URL) is required",
+            ));
+        }
+        self.create_task("/generation/image-to-splat", &params)
+            .await
+    }
+
     // ───────────────────────── Image generation ─────────────────────────────
 
     /// `POST /v3/generation/text-to-image`
@@ -419,12 +564,55 @@ impl TripoClient {
         self.create_task("/models/convert", &params).await
     }
 
+    /// `POST /v3/models/import` — bring an external model into Tripo. The
+    /// finished task can be the `input` of the post-processing endpoints,
+    /// such as `texture_model` or `convert_model`.
+    pub async fn import_model(&self, params: ImportModelParams) -> Result<String> {
+        if params.input.trim().is_empty() {
+            return Err(Error::invalid_argument(
+                "import_model: `input` (file_token or URL) is required",
+            ));
+        }
+        self.create_task("/models/import", &params).await
+    }
+
     /// `POST /v3/mesh/segment` — semantic segmentation of a mesh.
     pub async fn segment_mesh(&self, params: SegmentMeshParams) -> Result<String> {
         if params.input.trim().is_empty() {
             return Err(Error::invalid_argument("segment_mesh: `input` is required"));
         }
         self.create_task("/mesh/segment", &params).await
+    }
+
+    /// `POST /v3/mesh/smartsegment` — segmentation pipeline. The finished
+    /// task reports the segmented model in
+    /// [`TaskOutput::seg_model_url`](crate::models::TaskOutput::seg_model_url).
+    pub async fn smart_segment(&self, params: SmartSegmentParams) -> Result<String> {
+        use crate::constants::seg_type;
+        match params.seg_type.as_str() {
+            seg_type::IMAGE | seg_type::MODEL => {}
+            "" => {
+                return Err(Error::invalid_argument(
+                    "smart_segment: `seg_type` is required; build with SmartSegmentParams::image or ::model",
+                ))
+            }
+            other => {
+                return Err(Error::invalid_argument(format!(
+                    "smart_segment: unknown `seg_type` {other:?}"
+                )))
+            }
+        }
+        if params.input.trim().is_empty() {
+            return Err(Error::invalid_argument(
+                "smart_segment: `input` is required",
+            ));
+        }
+        if params.seg_type == seg_type::MODEL && params.transform.is_none() {
+            return Err(Error::invalid_argument(
+                "smart_segment: `transform` is required for seg_type::MODEL",
+            ));
+        }
+        self.create_task("/mesh/smartsegment", &params).await
     }
 
     /// `POST /v3/mesh/complete` — mesh completion / repair.
@@ -540,6 +728,14 @@ impl TripoClient {
             .await?;
         Ok(created.task_id)
     }
+}
+
+fn normalize_format(format: &str) -> String {
+    let format = format.trim();
+    format
+        .strip_prefix('.')
+        .unwrap_or(format)
+        .to_ascii_lowercase()
 }
 
 /// Minimal path-segment percent-encoding (avoids pulling in the `urlencoding`

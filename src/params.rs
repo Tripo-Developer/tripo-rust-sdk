@@ -429,6 +429,26 @@ impl ImageToMultiviewParams {
     }
 }
 
+/// `POST /v3/generation/image-to-splat`
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ImageToSplatParams {
+    /// A `file_token` or URL of a PNG, JPEG or WebP image.
+    pub input: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_seed: Option<i64>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl ImageToSplatParams {
+    pub fn new(input: impl Into<String>) -> Self {
+        Self {
+            input: input.into(),
+            ..Default::default()
+        }
+    }
+}
+
 /// `POST /v3/generation/edit-multiview` — apply per-view edits to a
 /// previously generated multiview set.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -630,6 +650,81 @@ pub struct SegmentMeshParams {
 }
 
 impl SegmentMeshParams {
+    pub fn new(input: impl Into<String>) -> Self {
+        Self {
+            input: input.into(),
+            ..Default::default()
+        }
+    }
+}
+
+/// The column-major 4×4 identity matrix: the
+/// [`SmartSegmentParams::transform`] for a model that needs no adjustment.
+pub const IDENTITY_TRANSFORM: [f64; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+/// `POST /v3/mesh/smartsegment`
+///
+/// Unlike [`SegmentMeshParams`], which splits an existing Tripo model, the
+/// image pipeline first generates the model from the image. Build with
+/// [`SmartSegmentParams::image`] or [`SmartSegmentParams::model`].
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SmartSegmentParams {
+    /// See the [`seg_type`](crate::constants::seg_type) constants.
+    pub seg_type: String,
+    /// A `file_token` or URL: a PNG, JPEG or WebP image for
+    /// [`seg_type::IMAGE`](crate::constants::seg_type::IMAGE), or a GLB
+    /// model for [`seg_type::MODEL`](crate::constants::seg_type::MODEL).
+    pub input: String,
+    /// See the [`smart_segment_granularity`](crate::constants::smart_segment_granularity)
+    /// constants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granularity: Option<String>,
+    /// Names the parts to look for, e.g. `"character with sword and armor"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// Column-major 4×4 matrix applied to the input model. Required for
+    /// [`seg_type::MODEL`](crate::constants::seg_type::MODEL); see
+    /// [`IDENTITY_TRANSFORM`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f64; 16]>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl SmartSegmentParams {
+    /// Generate a model from an image, then segment it.
+    pub fn image(input: impl Into<String>) -> Self {
+        Self {
+            seg_type: crate::constants::seg_type::IMAGE.to_string(),
+            input: input.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Segment an existing GLB model after applying `transform`.
+    pub fn model(input: impl Into<String>, transform: [f64; 16]) -> Self {
+        Self {
+            seg_type: crate::constants::seg_type::MODEL.to_string(),
+            input: input.into(),
+            transform: Some(transform),
+            ..Default::default()
+        }
+    }
+}
+
+/// `POST /v3/models/import`
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ImportModelParams {
+    /// A `file_token` or URL of a GLB, GLTF, FBX, OBJ or STL file of at most
+    /// 150 MB. Use `upload_large_file` for files over 60 MB.
+    pub input: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl ImportModelParams {
     pub fn new(input: impl Into<String>) -> Self {
         Self {
             input: input.into(),
